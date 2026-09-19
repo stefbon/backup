@@ -4,19 +4,18 @@ TMP_backuproot="/var/db/backup/$USER"
 
 if [ ! -d "$TMP_backuproot" ]; then
 
-    echo "Root backup directory does not exist ... cannot continue"
+    echo "Root backup directory does not exist ... create it ... cannot continue"
+    echo "Become root and create it:"
+    export BACKUP_USER=\"$USER\"
+    echo "su -"
+    echo "mkdir /var/db/backup"
+    echo "install --owner \"$BACKUP_USER\" /var/db/backup/$BACKUP_USER"
+    echo "exit"
     exit
 
 fi
 
 cd $HOME
-
-if [ ! -d ".backup2/backup.d" ]; then
-
-    echo "backups not found"
-    exit
-
-fi
 
 TMP_sqlite=$(which sqlite3)
 
@@ -261,7 +260,7 @@ function do_backup()
 
 }
 
-for TMP_sourcefile in $(ls ".backup2/backup.d" ); do
+for TMP_sourcefile in $(ls "~/.config/backup.d" ); do
 
 
     unset BACKUP_DIRECTORY
@@ -271,7 +270,7 @@ for TMP_sourcefile in $(ls ".backup2/backup.d" ); do
     unset BACKUP_POLICY
     unset BACKUP_EXCL_MIMETYPES
 
-    source ".backup2/backup.d/$TMP_sourcefile"
+    source "~/.config/backup.d/$TMP_sourcefile"
 
     if [ -z "$BACKUP_DIRECTORY" ]; then
 
