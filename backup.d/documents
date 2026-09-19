@@ -1,4 +1,0 @@
-BACKUP_DIRECTORY=~/Documents
-BACKUP_RECURSIVE=1
-# BACKUP_MIMETYPES="application/pdf:application/vnd.oasis.opendocument.text"
-

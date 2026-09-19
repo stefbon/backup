@@ -1,4 +1,0 @@
-BACKUP_DIRECTORY=~/Projects/OSNS-lib
-BACKUP_RECURSIVE=1
-# BACKUP_MIMETYPES="text/x-c:text/x-makefile"
-BACKUP_EXCL_MIMETYPES="text/x-object"
