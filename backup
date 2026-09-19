@@ -1,0 +1,336 @@
+#!/bin/bash
+
+TMP_backuproot="/var/db/backup/$USER"
+
+if [ ! -d "$TMP_backuproot" ]; then
+
+    echo "Root backup directory does not exist ... cannot continue"
+    exit
+
+fi
+
+cd $HOME
+
+if [ ! -d ".backup2/backup.d" ]; then
+
+    echo "backups not found"
+    exit
+
+fi
+
+TMP_sqlite=$(which sqlite3)
+
+if [ -z "$TMP_sqlite" ]; then
+
+    TMP_sqlite="echo"
+
+fi
+
+# create something like 20260730
+
+TMP_year=$(date +%Y)
+TMP_month=$(date +%m)
+TMP_day=$(date +%d)
+TMP_hour=$(date +%H)
+TMP_minute=$(date +%M)
+TMP_second=$(date +%S)
+
+TMP_version="$TMP_year$TMP_month$TMP_day$TMP_hour$TMP_minute$TMP_second"
+
+function do_backup()
+{
+
+    local TMP_directory=$1
+    local TMP_backupbase=$2
+    local TMP_recursive=$3
+    local TMP_mimetypes=$4
+    local TMP_excl_mimetypes=$5
+    local TMP_directories=""
+    local TMP_filename=""
+    local TMP_sep=$(echo -en "\t")
+
+    if [ -z "$TMP_directory" -o -z "$TMP_backupbase" ]; then
+
+	return
+
+    fi
+
+    echo "A: Backup directory $TMP_directory"
+
+    # echo "Backup -> $TMP_directory <- backupbase $TMP_backupbase recursive $TMP_recursive mimetypes $TMP_mimetypes"
+
+    local IFS_keep="$IFS"
+    IFS=$(echo -en "\n\t")
+
+    TMP_tmpfile=$(mktemp 'tmp/backup.$USER.XXXXXXXXXX')
+
+    for TMP_filename in $(ls -1 "$TMP_directory" ); do
+
+	TMP_file="$TMP_directory/$TMP_filename"
+
+	# echo "Found $TMP_file"
+
+	IFS="$IFS_keep"
+
+	if [ -h "$TMP_file" ]; then
+
+	    # skip (symbbolic) links
+
+	    continue
+
+	elif [ -d "$TMP_file" ]; then
+
+	    if [ "$TMP_recursive" -eq 0 ]; then
+
+		# echo "skip directory $TMP_file ... not recursive"
+		continue
+
+	    fi
+
+	    # append to list of directories to be processed later 
+
+	    # echo "$TMP_file" >> "$TMP_tmpfile"
+	    continue
+
+	elif [ ! -f "$TMP_file" ]; then
+
+	    # echo "skip non file $TMP_file"
+	    continue
+
+	fi
+
+	# echo "A: found $TMP_file"
+
+	if [ "$TMP_mimetypes" != "none" ]; then
+
+	    # note: BASH removes the spaces when assignng to variable
+
+	    TMP_mimetype=$(file --mime-type "$TMP_file" | cut -d ':' -f 2);
+
+	    IFS_keep="$IFS"
+	    IFS=":"
+	    TMP_match=0
+
+	    for TMP_test in "$TMP_mimetypes"; do
+
+		# compare, also test the border case 
+
+		if [ "$TMP_mimetype" = "$TMP_test" ]; then
+
+		    # echo "Mimtype match"
+		    TMP_match=1
+		    break
+
+		fi
+
+	    done
+
+	    IFS="$IFS_keep"
+
+	    if [ $TMP_match -eq 0 ]; then
+
+		continue
+
+	    fi
+
+	fi
+
+	if [ "$TMP_excl_mimetypes" != "none" ]; then
+
+	    # note: BASH removes the spaces when assignng to variable
+
+	    TMP_mimetype=$(file --mime-type "$TMP_file" | cut -d ':' -f 2);
+
+	    IFS_keep="$IFS"
+	    IFS=":"
+	    TMP_match=0
+
+	    for TMP_test in "$TMP_excl_mimetypes"; do
+
+		# compare, also test the border case 
+
+		if [ "$TMP_mimetype" = "$TMP_test" ]; then
+
+		    # echo "Mimtype match"
+		    TMP_match=1
+		    break
+
+		fi
+
+	    done
+
+	    IFS="$IFS_keep"
+
+	    if [ $TMP_match -eq 1 ]; then
+
+		continue
+
+	    fi
+
+	fi
+
+	# make suze tables do exist
+
+	$TMP_sqlite $TMP_db "CREATE TABLE IF NOT EXISTS backup (id INTEGER PRIMARY KEY, path TEXT UNIQUE)"
+	$TMP_sqlite $TMP_db "CREATE TABLE IF NOT EXISTS files (id INTEGER PRIMARY KEY, backupid INTEGER, name TEXT, UNIQUE (backupid, name))"
+	$TMP_sqlite $TMP_db "CREATE TABLE IF NOT EXISTS versions (id INTEGER PRIMARY KEY, fileid INTEGER, name TEXT)"
+
+	if [ ! -d "$TMP_backuproot/root/$TMP_backupbase/backup/" ]; then
+
+	    mkdir -p "$TMP_backuproot/root/$TMP_backupbase/backup/"
+
+	fi
+
+	# make sure backup does exist in db 
+
+	$TMP_sqlite $TMP_db "INSERT OR IGNORE INTO backup (path) VALUES ('$TMP_backupbase')"
+	TMP_backupid=$($TMP_sqlite $TMP_db "SELECT id FROM backup WHERE path='$TMP_backupbase'")
+
+	# make sure file does exist in db
+	# note the name is the relative name to the backup base directory
+
+	TMP_backup=${TMP_file#$TMP_backupbase/}
+
+	if [ -z "$TMP_backup" ]; then
+
+	    echo "... continue ..."
+	    continue;
+
+	fi
+
+	# echo "Found file $TMP_file : $TMP_backup"
+
+	$TMP_sqlite $TMP_db "INSERT OR IGNORE INTO files (backupid, name) VALUES ('$TMP_backupid', '$TMP_backup')"
+	TMP_fileid=$($TMP_sqlite $TMP_db "SELECT id FROM files WHERE backupid=='$TMP_backupid' AND name='$TMP_backup'")
+
+	# make sure subdirectory does exists (if defined)
+
+	TMP_dirname=$(dirname $TMP_backup)
+
+	if [ ! -z "$TMP_dirname" ]; then
+
+	    if [ ! -d "$TMP_backuproot/root/$TMP_backupbase/backup/$TMP_dirname/" ]; then
+
+		mkdir -p "$TMP_backuproot/root/$TMP_backupbase/backup/$TMP_dirname/"
+
+	    fi
+
+	fi
+
+	# echo "Compare $TMP_file with $TMP_backuproot/root/$TMP_backupbase/backup/$TMP_backup"
+
+	if [ "$TMP_file" -nt "$TMP_backuproot/root/$TMP_backupbase/backup/$TMP_backup" ]; then
+
+	    echo "Backup -> $TMP_file <-"
+
+	    if [ -f "$TMP_backuproot/root/$TMP_backupbase/backup/$TMP_backup" ]; then
+
+		# move any existiung bakcup to version
+
+		if [ ! -d "$TMP_backuproot/root/$TMP_backupbase/version/$TMP_version/$TMP_dirname" ]; then
+
+		    mkdir -p "$TMP_backuproot/root/$TMP_backupbase/version/$TMP_version/$TMP_dirname"
+
+		fi
+
+		echo "Copy existing backup to version $TMP_version"
+
+		mv "$TMP_backuproot/root/$TMP_backupbase/backup/$TMP_backup" "$TMP_backuproot/root/$TMP_backupbase/version/$TMP_version/$TMP_backup"
+		$TMP_sqlite $TMP_db "INSERT INTO versions (fileid, name) VALUES ('$TMP_fileid','$TMP_version')"
+
+	    fi
+
+	    cp "$TMP_file" "$TMP_backuproot/root/$TMP_backupbase/backup/$TMP_backup"
+
+	fi
+
+    done
+
+    if [ -f "$TMP_tmpfile" ]; then
+
+	for TMP_file in $(cat "$TMP_tmpfile"); do
+
+	    echo "Found directory $YMP_file"
+	    do_backup "$TMP_file" "$TMP_backupbase" 1 "$TMP_mimetypes" "$TMP_excl_mimetypes" 
+
+	done
+
+	rm "$TMP_tmpfile"
+
+    fi
+
+}
+
+for TMP_sourcefile in $(ls ".backup2/backup.d" ); do
+
+
+    unset BACKUP_DIRECTORY
+    unset BACKUP_MIMETYPES
+    unset BACKUP_RECURSIVE
+    unset BACKUP_COMPRESS
+    unset BACKUP_POLICY
+    unset BACKUP_EXCL_MIMETYPES
+
+    source ".backup2/backup.d/$TMP_sourcefile"
+
+    if [ -z "$BACKUP_DIRECTORY" ]; then
+
+	continue;
+
+    fi
+
+    if [ ! -d "$BACKUP_DIRECTORY" ]; then
+
+	continue;
+
+    fi
+
+    if [ -z "$BACKUP_MIMETYPES" ]; then
+
+	BACKUP_MIMETYPES="none"
+
+    fi
+
+    if [ -z "$BACKUP_RECURSIVE" ]; then
+
+	BACKUP_RECURSIVE=0
+
+    fi
+
+    if [ -z "$BACKUP_COMPRESS" ]; then
+
+	BACKUP_COMPRESS=0
+
+    fi
+
+    if [ -z "$BACKUP_EXCL_MIMETYPES" ]; then
+
+	BACKUP_EXCL_MIMETYPES="none"
+
+    fi
+
+    TMP_db="$TMP_backuproot/backup.sqlite"
+
+    do_backup "$BACKUP_DIRECTORY" "$BACKUP_DIRECTORY" "$BACKUP_RECURSIVE" "$BACKUP_MIMETYPES" "$BACKUP_EXCL_MIMETYPES"
+
+    # gather all files in versions and compress
+
+    if [ $BACKUP_COMPRESS -gt 0 ]; then
+
+	if [ -d "$TMP_backuproot/root/$BACKUP_DIRECTORY/version/$TMP_version" ]; then
+
+	    TMP_keep="$PWD"
+	    cd "$TMP_backuproot/root/$BACKUP_DIRECTORY/"
+
+	    tar --create --file "backup.$TMP_version.tar.bz2" --bzip2 --strip-components=2 "version/$TMP_version"
+	    rm --recursive "version/$TMP_version"
+
+	    cd "$TMP_keep"
+
+	fi
+
+    fi
+
+    # implement the policy to remove old versions/backup files
+
+done
