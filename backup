@@ -88,8 +88,8 @@ function do_backup()
 
 	    # append to list of directories to be processed later 
 
-	    # echo "$TMP_file" >> "$TMP_tmpfile"
-	    continue
+	    echo "$TMP_file" >> "$TMP_tmpfile"
+	    # continue
 
 	elif [ ! -f "$TMP_file" ]; then
 
@@ -260,7 +260,7 @@ function do_backup()
 
 }
 
-for TMP_sourcefile in $(ls "~/.config/backup.d" ); do
+for TMP_sourcefile in $(ls ".config/backup/backup.d" ); do
 
 
     unset BACKUP_DIRECTORY
@@ -270,7 +270,7 @@ for TMP_sourcefile in $(ls "~/.config/backup.d" ); do
     unset BACKUP_POLICY
     unset BACKUP_EXCL_MIMETYPES
 
-    source "~/.config/backup.d/$TMP_sourcefile"
+    source ".config/backup/backup.d/$TMP_sourcefile"
 
     if [ -z "$BACKUP_DIRECTORY" ]; then
 
